@@ -8,10 +8,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import pl.kurs.exceptions.BookNotFoundException;
+import pl.kurs.model.Author;
 import pl.kurs.model.Book;
 import pl.kurs.model.command.CreateBookCommand;
 import pl.kurs.model.command.EditBookCommand;
-import pl.kurs.service.BookIdGenerator;
+import pl.kurs.model.dto.BookDto;
+import pl.kurs.repository.AuthorRepository;
+import pl.kurs.repository.BookRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,72 +23,64 @@ import java.util.Optional;
 @RequestMapping("/api/v1/books")
 @Slf4j
 @RequiredArgsConstructor
-//@Scope("singleton")// jedna instancja dla calej aplikacji
-//@Scope("request")// nowa instancja do kjazdego zadania
-@Scope("session")// kazdy nowy klient bedzie mial nowa instancje kontrollera
-
 public class BookController {
 
 
-    private final List<Book> books;
+    private final BookRepository bookRepository;
+    private final AuthorRepository authorRepository;
 
-    private final BookIdGenerator bookIdGenerator;
-
-    private int counter = 0;
     @PostConstruct
     public void init() {
-//        books.add(new Book(generator.incrementAndGet(), "W pustyni i w puszczy", "LEKTURA", true));
-//        books.add(new Book(generator.incrementAndGet(), "Krzyżacy", "LEKTURA", true));
-    }
+        Author a1 = authorRepository.saveAndFlush(new Author("Kazimierz", "Wileki", 1900, 2000));
+        Author a2 = authorRepository.saveAndFlush(new Author("Maria", "Jakas", 1900, 2000));
 
-    @GetMapping("/test")
-    public void test() {
-        log.info("counter:{}", counter++);
+        bookRepository.saveAndFlush(new Book( "W pustyni i w puszczy", "LEKTURA", true, a1));
+        bookRepository.saveAndFlush(new Book( "Ogniem i mieczem", "LEKTURA", true, a1));
+        bookRepository.saveAndFlush(new Book( "podstawy java", "NAUKOWE", true, a2));
     }
 
 
     @GetMapping
-    public ResponseEntity<List<Book>> findAll() {
+    public ResponseEntity<List<BookDto>> findAll() {
         log.info("findAll");
-        return ResponseEntity.ok(books);
+        return ResponseEntity.ok(bookRepository.findAll().stream().map(BookDto::from).toList());
     }
 
+    // TODO wyjatki rozroznienie
     @PostMapping
-    public ResponseEntity<Book> addBook(@RequestBody CreateBookCommand command) {
-        Book book = new Book(bookIdGenerator.getId(), command.getTitle(), command.getCategory(), true);
-        books.add(book);
-        return ResponseEntity.status(HttpStatus.CREATED).body(book);
+    public ResponseEntity<BookDto> addBook(@RequestBody CreateBookCommand command) {
+        Author author = authorRepository.findById(command.getAuthorId()).orElseThrow(BookNotFoundException::new);
+        Book book = bookRepository.saveAndFlush(new Book(command.getTitle(), command.getCategory(), true, author));
+        return ResponseEntity.status(HttpStatus.CREATED).body(BookDto.from(book));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Book> findBook(@PathVariable int id) {
-        return ResponseEntity.ok(books.stream().filter(b -> b.getId() == id).findFirst().orElseThrow(BookNotFoundException::new));
+    public ResponseEntity<BookDto> findBook(@PathVariable int id) {
+        return ResponseEntity.ok(BookDto.from(bookRepository.findById(id).orElseThrow(BookNotFoundException::new)));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Book> deleteBook(@PathVariable int id) {
-        if(books.removeIf(b -> b.getId() == id)){
-            throw new BookNotFoundException();
-        }
+    public ResponseEntity<BookDto> deleteBook(@PathVariable int id) {
+        bookRepository.deleteById(id);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Book> editBook(@PathVariable int id, @RequestBody EditBookCommand command) {
-       Book book = books.stream().filter(b -> b.getId() == id).findFirst().orElseThrow(BookNotFoundException::new);
-       book.setCategory(command.getCategory());
-       book.setTitle(command.getTitle());
-       book.setAvailable(command.getAvailable());
-       return ResponseEntity.status(HttpStatus.OK).body(book);
+    public ResponseEntity<BookDto> editBook(@PathVariable int id, @RequestBody EditBookCommand command) {
+        Book book = bookRepository.findById(id).orElseThrow(BookNotFoundException::new);
+        book.setCategory(command.getCategory());
+        book.setTitle(command.getTitle());
+        book.setAvailable(command.getAvailable());
+        return ResponseEntity.status(HttpStatus.OK).body(BookDto.from(bookRepository.saveAndFlush(book)));
     }
 
     @PatchMapping("/{id}")
-    public ResponseEntity<Book> editBookPartially(@PathVariable int id, @RequestBody EditBookCommand command) {
-        Book book = books.stream().filter(b -> b.getId() == id).findFirst().orElseThrow(BookNotFoundException::new);
+    public ResponseEntity<BookDto> editBookPartially(@PathVariable int id, @RequestBody EditBookCommand command) {
+        Book book =  bookRepository.findById(id).orElseThrow(BookNotFoundException::new);
         Optional.ofNullable(command.getCategory()).ifPresent(book::setCategory);
         Optional.ofNullable(command.getAvailable()).ifPresent(book::setAvailable);
         Optional.ofNullable(command.getTitle()).ifPresent(book::setTitle);
-        return ResponseEntity.status(HttpStatus.OK).body(book);
+        return ResponseEntity.status(HttpStatus.OK).body(BookDto.from(bookRepository.saveAndFlush(book)));
     }
 
 
